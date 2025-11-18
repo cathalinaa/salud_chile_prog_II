@@ -51,44 +51,68 @@ df = df.rename(columns={
     "TipoUrgencia": "UrgenciaTipo",
 })
 
-# Convertir coordenadas a float
 df["Lat"] = pd.to_numeric(df["Lat"], errors="coerce")
 df["Lon"] = pd.to_numeric(df["Lon"], errors="coerce")
-
 df = df.dropna(subset=["Region", "Comuna", "Nombre", "Tipo"])
 
 # -------------------------------------------------------
 # SIDEBAR – FILTROS
 # -------------------------------------------------------
-st.sidebar.title("🔍 Filtros")
+st.sidebar.title("🔍 Encuentra el centro de salud que necesitas")
 
 # Filtro región
 regiones = sorted(df["Region"].unique())
 region_sel = st.sidebar.selectbox("Región:", ["Todas"] + regiones)
-
 df_filt = df.copy() if region_sel == "Todas" else df[df["Region"] == region_sel]
 
 # Filtro comuna
 comunas = sorted(df_filt["Comuna"].unique())
 comuna_sel = st.sidebar.selectbox("Comuna:", ["Todas"] + comunas)
-
 if comuna_sel != "Todas":
     df_filt = df_filt[df_filt["Comuna"] == comuna_sel]
 
 # Filtro tipo
 tipos = sorted(df["Tipo"].unique())
 tipo_sel = st.sidebar.multiselect("Tipo de establecimiento:", tipos, default=tipos)
-
 df_filt = df_filt[df_filt["Tipo"].isin(tipo_sel)]
 
-# Filtro urgencia
+# Explicación clara (MEJORA #10)
+with st.sidebar.expander("ℹ️ ¿Qué significa cada tipo de centro?"):
+    st.write("""
+    **Hospital:** Centro de atención compleja con especialidades médicas.
+    **Clínica:** Establecimiento de salud privado.
+    **CESFAM:** Centro de Salud Familiar (atención primaria).
+    **SAPU:** Servicio de Atención Primaria de Urgencia.
+    **SUR:** Servicio de Urgencia Rural.
+    **Posta / Estación Médico Rural:** Atención básica en zonas rurales.
+    """)
+
+# Filtro existencia urgencia (renombrado)
+urg_existencia = st.sidebar.selectbox(
+    "Tipo de centro de salud:",
+    ["Todos los centros", "Centros con urgencia", "Centros sin urgencia"]
+)
+
+if urg_existencia == "Centros con urgencia":
+    df_filt = df_filt[df_filt["Urgencia"].str.contains("Sí", na=False)]
+elif urg_existencia == "Centros sin urgencia":
+    df_filt = df_filt[df_filt["Urgencia"].str.contains("No", na=False)]
+
+# Filtro tipo urgencia público / privado
 urgencias_opciones = ["Todos", "Público", "Privado"]
-urg_sel = st.sidebar.selectbox("Servicio de Urgencias:", urgencias_opciones)
+urg_sel = st.sidebar.selectbox("Tipo de Servicio de Urgencias:", urgencias_opciones)
+
+df_urg_filtered = df_filt.copy()
 
 if urg_sel == "Público":
-    df_filt = df_filt[df_filt["UrgenciaTipo"].str.contains("Público", na=False)]
+    df_urg_filtered = df_filt[df_filt["UrgenciaTipo"].str.contains("Público", na=False)]
 elif urg_sel == "Privado":
-    df_filt = df_filt[df_filt["UrgenciaTipo"].str.contains("Privado", na=False)]
+    df_urg_filtered = df_filt[df_filt["UrgenciaTipo"].str.contains("Privado", na=False)]
+
+if df_urg_filtered.empty and urg_sel != "Todos":
+    st.sidebar.warning("⚠ No se encontraron establecimientos con ese tipo de urgencia. Se mostrarán todos.")
+else:
+    df_filt = df_urg_filtered
 
 # -------------------------------------------------------
 # RESULTADOS
@@ -102,11 +126,23 @@ if df_filt.empty:
 st.success(f"Se encontraron **{len(df_filt)}** establecimientos.")
 
 # -------------------------------------------------------
-# MAPA
+# MAPA (MEJORA #6 y #7)
 # -------------------------------------------------------
 st.subheader("🗺️ Mapa de establecimientos")
 
 df_map = df_filt.dropna(subset=["Lat", "Lon"])
+
+color_map = {
+    "Hospital": "blue",
+    "Clínica": "red",
+    "CESFAM": "green"
+}
+
+def get_marker_color(tipo):
+    for key in color_map:
+        if key.lower() in tipo.lower():
+            return color_map[key]
+    return "gray"
 
 if df_map.empty:
     st.warning("No hay coordenadas disponibles para este filtro.")
@@ -116,9 +152,13 @@ else:
     for _, row in df_map.iterrows():
         folium.Marker(
             [row["Lat"], row["Lon"]],
-            popup=f"{row['Nombre']}<br>{row['Tipo']}<br>{row['Comuna']}",
-            tooltip=row["Nombre"]
+            popup=f"<b>{row['Nombre']}</b><br>{row['Tipo']}<br>{row['Comuna']}",
+            tooltip=row["Nombre"],
+            icon=folium.Icon(color=get_marker_color(row["Tipo"]))
         ).add_to(m)
+
+    # Instrucción para el usuario (MEJORA #7)
+    st.markdown("🛈 *Puedes hacer zoom y tocar los puntos del mapa para ver más información.*")
 
     st_folium(m, height=480)
 
@@ -159,7 +199,7 @@ sns.countplot(data=df_filt, y="Region", order=df_filt["Region"].value_counts().i
 st.pyplot(fig)
 
 # -------------------------------------------------------
-# 🔥 INTERACCIONES AVANZADAS
+# INTERACCIONES AVANZADAS
 # -------------------------------------------------------
 st.subheader("🤖 Interacciones avanzadas")
 
