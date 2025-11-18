@@ -1,9 +1,8 @@
-streamlit
-pandas
-matplotlib
-seaborn
-requests
-folium
-streamlit-folium
-numpy
-
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import requests
+import folium
+from streamlit_folium import st_folium
+import numpy as np
